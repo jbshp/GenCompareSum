@@ -3,7 +3,7 @@ argon2-cffi==21.3.0
 argon2-cffi-bindings==21.2.0
 attrs==21.4.0
 backcall==0.2.0
--e git+https://github.com/jbshp/GenCompareSum.git@d973b1eb27e677144581f0ab50e05df07d4e491c#egg=bert_score&subdirectory=utils/bert_score
+-e git+https://github.com/jbshp/GenCompareSum.git@d973b1eb27e677144581f0ab50e05df07d4e491c#egg=bert_score&subdirectory=src/bert_score
 bert-score==0.3.10
 bleach==4.1.0
 breadability==0.1.20
