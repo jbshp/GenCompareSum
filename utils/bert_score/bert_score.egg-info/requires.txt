@@ -1,0 +1,7 @@
+torch>=1.0.0
+pandas>=1.0.1
+transformers>=3.0.0numpy
+requests
+tqdm>=4.31.1
+matplotlib
+packaging>=20.9

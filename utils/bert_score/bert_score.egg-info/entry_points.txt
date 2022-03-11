@@ -1,0 +1,4 @@
+[console_scripts]
+bert-score = bert_score_cli.score:main
+bert-score-show = bert_score_cli.visualize:main
+
