@@ -1,23 +1,19 @@
 import json
 import os
-from typing import List, Iterable
+from typing import List
 import ast
 import nltk
 import torch
 import pandas as pd
 from tqdm import tqdm
-from transformers import T5Config, T5Tokenizer, T5ForConditionalGeneration
+from transformers import T5Tokenizer, T5ForConditionalGeneration
 import bert_score
-import random
-import math
 import functools
 
 from pyrouge import Rouge155
 import time
 import shutil
 import numpy as np
-import re
-from datetime import datetime
 from nltk import word_tokenize
 from simcse import SimCSE
 import argparse
@@ -556,14 +552,10 @@ def main(df,
         gold_sum = df.loc[idx,'summary_text_combined']
         gold_summaries.append(gold_sum)
         
-        #print(pred_sum)
-        #print(gold_sum)
 
     #  calculate ROUGE scores
     model_type = bert_score_model_type.split('/')[-1]
     our_pred = test_rouge(our_predictions,gold_summaries)
-#     with open(f'our_pred_{num_questions}_{num_sentences}_{model_type}_{col_name}_{batch_size}.json','w') as f:
-#         json.dump(our_pred,f)
     
     
     
