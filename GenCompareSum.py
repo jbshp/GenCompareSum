@@ -14,13 +14,14 @@ from pyrouge import Rouge155
 import time
 import shutil
 import numpy as np
-from nltk import word_tokenize
+import nltk
 from simcse import SimCSE
 import argparse
 from scipy import spatial
 from sentence_transformers import SentenceTransformer
 
 from IPython.utils import io
+nltk.download('punkt')
 
 
 def timer(func):
@@ -50,92 +51,92 @@ def preprocess(document: str, stride=5, list=False) -> List[str]:
     
 
 
-def generate_questions(
+def generate_salient_texts(
         text,
         model,
         tokenizer,
         device,
-        num_q_per_section,
+        num_texts_per_section,
         temperature,
         max_len
     ):
     """
-    This function takes a text passage and generate a list of questions
+    This function takes a text passage and generate a list of salient_texts
     """
 
     input_ids = tokenizer.encode(text, return_tensors='pt').to(device)
     
-    questions = []
+    salient_texts = []
     try:
         outputs = model.generate(
             input_ids=input_ids,
             max_length=max_len,
             do_sample=True,
             top_k=10,
-            num_return_sequences=num_q_per_section,
+            num_return_sequences=num_texts_per_section,
             temperature=temperature
         )
-        questions = [tokenizer.decode(output, skip_special_tokens=True) for output in outputs] 
+        salient_texts = [tokenizer.decode(output, skip_special_tokens=True) for output in outputs] 
     except RuntimeError:
         print(len(input_ids))
 
-    return questions
+    return salient_texts
 
 
-def get_questions_across_corpus(
+def get_salient_texts_across_corpus(
         model,
         tokenizer,
         doc_text,
         device,
         stride,
-        num_q_per_section,
+        num_texts_per_section,
         temperature,
-        top_k_questions,
+        top_k_salient_texts,
         block_n_gram
     ):
     """
     This function takes a document, which is pre-split into an array, with one sentence per element.  
     The function then combines several sentences into paragraphs (num sentences in section is 'stride').
-    Several questions are then geenrated per section. 
-    The questions are combined and the most frequent k questions generated from across the whole corpus are taken
+    Several salient_texts are then geenrated per section. 
+    The salient_texts are combined and the most frequent k salient_texts generated from across the whole corpus are taken
     """
     text_split_into_sections = preprocess(doc_text,stride=stride,list=True)
-    questions = [
-        generate_questions(
+    salient_texts = [
+        generate_salient_texts(
             span,
             model,
             tokenizer,
             device,
-            num_q_per_section,
+            num_texts_per_section,
             temperature=temperature,
             max_len=64
         ) for span in text_split_into_sections
     ]
-    question_df = pd.DataFrame([
+    gen_text_df = pd.DataFrame([
         dict(
             document_id=doc_idx,
             span_id=f"{doc_idx}:{span_idx}",
             gen_id=f"{doc_idx}:{span_idx}",
-            question=question,
+            gen_text=gen_text,
         )
-        for doc_idx, document_gen in enumerate(questions)
-        for span_idx, question in enumerate(document_gen)
+        for doc_idx, document_gen in enumerate(salient_texts)
+        for span_idx, gen_text in enumerate(document_gen)
     ])
 
-    questions_grouped_tbl = question_df \
-        .groupby("question") \
+    salient_texts_grouped_tbl = gen_text_df \
+        .groupby("gen_text") \
         .nunique() \
         .sort_values("gen_id", ascending=False)
     
-    top_questions = list(questions_grouped_tbl.index[0:top_k_questions])
-    top_weight = np.array(questions_grouped_tbl.gen_id[0:top_k_questions])
+    top_salient_texts = list(salient_texts_grouped_tbl.index[0:top_k_salient_texts])
+    top_weight = np.array(salient_texts_grouped_tbl.gen_id[0:top_k_salient_texts])
     
     
     # experiment with trigram blocking version   
     if (block_n_gram):
         _pred = []
         _weight = []
-        for candidate, weight in zip(questions_grouped_tbl.index,questions_grouped_tbl.gen_id):
+        for candidate, weight in zip(salient_texts_grouped_tbl.index,salient_texts_grouped_tbl.gen_id):
             idx_ngram_blocker = _block_n_gram(block_n_gram,candidate, _pred,True)
             if (idx_ngram_blocker != False):
                 _weight[idx_ngram_blocker] =  _weight[idx_ngram_blocker] + weight
@@ -146,12 +147,12 @@ def get_questions_across_corpus(
         _weight = np.array(_weight)
         _pred = _pred[np.argsort(-_weight)]
         _weight = _weight[np.argsort(-_weight)]
-        top_questions_trigram_block = _pred[0:top_k_questions]
-        weight_trigram_block = _weight[0:top_k_questions]      
+        top_salient_texts_trigram_block = _pred[0:top_k_salient_texts]
+        weight_trigram_block = _weight[0:top_k_salient_texts]      
 
-        return top_questions, top_weight, top_questions_trigram_block, weight_trigram_block
+        return top_salient_texts, top_weight, top_salient_texts_trigram_block, weight_trigram_block
     
-    return top_questions, top_weight
+    return top_salient_texts, top_weight
 
 
     
@@ -168,23 +169,22 @@ def dedupe_doc_text(seq):
 def calculate_similarity_bert_score(
         model_bertscore,
         tokenizer_bertscore,
-        questions,
+        salient_texts,
         doc_text,
         model_type,
         all_layers,
         num_layers,
-        device,
-        batch_size
+        device
     ):
-    # create an array of questions of length no_questions*num_sentences
-    questions_compare_array = flatten(
-        np.array([[str(question)]*len(doc_text) for question in questions])
+    # create an array of salient_texts of length no_salient_texts*num_sentences
+    salient_texts_compare_array = flatten(
+        np.array([[str(gen_text)]*len(doc_text) for gen_text in salient_texts])
         .astype('str')
     )
-    # create an array of sentences of length no_questions*num_sentences
-    sentences_compare_array = flatten(np.array([doc_text for question in questions]).astype('str'))
+    # create an array of sentences of length no_salient_texts*num_sentences
+    sentences_compare_array = flatten(np.array([doc_text for gen_text in salient_texts]).astype('str'))
     P_sci, R_sci, F1_sci = bert_score.score(
-        questions_compare_array, 
+        salient_texts_compare_array, 
         sentences_compare_array,
         model_bertscore,
         tokenizer_bertscore,
@@ -193,42 +193,42 @@ def calculate_similarity_bert_score(
         device=device, 
         verbose=False,
         all_layers=all_layers,
-        batch_size=batch_size
+        batch_size=64
     )
     return F1_sci
 
 @timer  
-def calculate_similarity_simsce(model_simcse,questions,doc_text,device):
-    return model_simcse.similarity(list(questions),list(doc_text))
+def calculate_similarity_simsce(model_simcse,salient_texts,doc_text,device):
+    return model_simcse.similarity(list(salient_texts),list(doc_text))
 
-def calculate_similarity_sentence_transformers(model,questions,doc_text):
+def calculate_similarity_sentence_transformers(model,salient_texts,doc_text):
     vectors_bert_sent = model.encode(doc_text)
-    vectors_bert_question = model.encode(questions)
-    scores_marix = np.zeros((len(questions),len(doc_text)))
+    vectors_bert_gen_text = model.encode(salient_texts)
+    scores_marix = np.zeros((len(salient_texts),len(doc_text)))
     for idx_1,ii in enumerate(vectors_bert_sent):
-        for idx_2, jj in enumerate(vectors_bert_question):
+        for idx_2, jj in enumerate(vectors_bert_gen_text):
             scores_marix[idx_2,idx_1] =  spatial.distance.cosine(ii, jj)
     return scores_marix
     
 
-def rank_answers_based_on_similarity_scores(doc_text,questions,scores,similarity_model_name,question_weights=np.array([])):
+def rank_answers_based_on_similarity_scores(doc_text,salient_texts,scores,similarity_model_name,gen_text_weights=np.array([])):
     """
     Params:
         doc_text: Array[<string>] : array of sentences in article
-        questions: Array[<string>] : array of questions summarising the article
-        scores: Array[<number>] : np.array of simialirty scores between each sentence and each question
-        question_weights Array[<number>] : np.array of weights associated with importance of each question 
+        salient_texts: Array[<string>] : array of salient_texts summarising the article
+        scores: Array[<number>] : np.array of simialirty scores between each sentence and each gen_text
+        gen_text_weights Array[<number>] : np.array of weights associated with importance of each gen_text 
         
     Returns:
         sorted_idxs: Array[<int>] : np.array of indicies of sentencs in doc_text, 
                      sorted in order of importance for summary 
     """
-    # reshape so that rows represent different questions and columns represent different sentences in source text 
-    scores_reshaped = np.array(scores.reshape(len(questions),len(doc_text)))
-    # optionally multiply by weights associated with questions
-    if len(question_weights>0):
-        scores_reshaped = scores_reshaped*question_weights.reshape(question_weights.size,1)
-    # Take mean bert-score for sentences across all questions
+    # reshape so that rows represent different salient_texts and columns represent different sentences in source text 
+    scores_reshaped = np.array(scores.reshape(len(salient_texts),len(doc_text)))
+    # optionally multiply by weights associated with salient_texts
+    if len(gen_text_weights>0):
+        scores_reshaped = scores_reshaped*gen_text_weights.reshape(gen_text_weights.size,1)
+    # Take mean bert-score for sentences across all salient_texts
     scores_average = np.mean(scores_reshaped,axis=0)
     # sort indicies of scores in descendng order
     if similarity_model_name =='sentence_transformers':
@@ -256,7 +256,7 @@ def select_sentences(
         metric: 'tokens' or 'sentences' : how to calculate how long summary should be
         target_tokens: int : number of tokens to aim for in target summary
         target_tokens: int : number of sentences to aim for in target summary
-        question_weights: Array[<number>] : np.array of weights associated with importance of each question 
+        gen_text_weights: Array[<number>] : np.array of weights associated with importance of each gen_text 
         block_n_gram: int or None: if int, number of consecutive words 
                       required to match for a sentence to be blocked
         
@@ -265,7 +265,7 @@ def select_sentences(
                      sorted in order of importance for summary 
     """
     if metric == 'tokens':
-        len_sentences = np.array([len(word_tokenize(s)) for s in doc_text])
+        len_sentences = np.array([len(nltk.word_tokenize(s)) for s in doc_text])
         article_len = np.sum(len_sentences)
         max_len = target_tokens
     elif metric == 'sentences':
@@ -302,7 +302,7 @@ def pick_top_sentences_and_join_into_one_str(
     model,
     tokenizer,
     doc_text,
-    questions,
+    salient_texts,
     device,
     num_layers, 
     all_layers,
@@ -312,12 +312,11 @@ def pick_top_sentences_and_join_into_one_str(
     similarity_model_name,
     block_n_gram,
     target_tokens,
-    batch_size,
     similarity_model_path
     ):
     """
     Passed an array of strings representing an article  (doc_text)
-    and an array of strings representing the questions (questions) which summarise it,
+    and an array of strings representing the salient_texts (salient_texts) which summarise it,
     the function returns one string containing the top k scoring sentences to be included in a summary, 
     in the order that they appear in the text.
     """
@@ -328,33 +327,32 @@ def pick_top_sentences_and_join_into_one_str(
             scores = calculate_similarity_bert_score(
                 model,
                 tokenizer,
-                questions,
+                salient_texts,
                 doc_text,
                 similarity_model_path,
                 all_layers,
                 num_layers,
-                device,
-                batch_size
+                device
             )
         elif similarity_model_name == 'simcse':
             scores = calculate_similarity_simsce(
                 model,
-                questions,
+                salient_texts,
                 doc_text,
                 device
             )
         elif similarity_model_name =='sentence_transformers':
-            scores = calculate_similarity_sentence_transformers(model,questions,doc_text)
+            scores = calculate_similarity_sentence_transformers(model,salient_texts,doc_text)
         else:
             raise ValueError('similarity_model name not recognised.')    
     
     #  sort indexes of doc_text sentences in order of importance   
     sorted_idxs = rank_answers_based_on_similarity_scores(
         doc_text,
-        questions,
+        salient_texts,
         scores,
         similarity_model_name,
-        question_weights=weights
+        gen_text_weights=weights
     )
     
     # select sentences based on requires number of sentences or
@@ -431,17 +429,17 @@ def _get_ngrams(n, text):
         ngram_set.add(tuple(text[i:i + n]))
     return ngram_set
 
-def _block_n_gram(n, c, p,questions=False):
+def _block_n_gram(n, c, p,salient_texts=False):
     """
     Params:
         n: int : number of consecutive words required to match for a sentence to be blocked
         c: string : candidate string to compare to array of strings
         p: Array[<string>]: array of strings to compare to
-        q: Bool: indicates whether the canddiate and prediction strings are questions 
+        q: Bool: indicates whether the canddiate and prediction strings are salient_texts 
     """
     tri_c = _get_ngrams(n, c.split())
     for idx, s in enumerate(p):
-        if (questions):
+        if (salient_texts):
             s = s.replace('what is',' ')
             s = s.replace('why is',' ')
             s = s.replace('what is the',' ')
@@ -452,23 +450,23 @@ def _block_n_gram(n, c, p,questions=False):
     return False
 
 
-def get_question_model(model,device):
+def get_T5_model(model,device):
     
-    tokenizer_doc2query = T5Tokenizer.from_pretrained(model)
-    model_doc2query = T5ForConditionalGeneration.from_pretrained(model)
-    output = model_doc2query.to(device)
-    return model_doc2query, tokenizer_doc2query
+    tokenizer_T5 = T5Tokenizer.from_pretrained(model)
+    model_T5 = T5ForConditionalGeneration.from_pretrained(model)
+    output = model_T5.to(device)
+    return model_T5, tokenizer_T5
     
 
 @timer
 def main(df,
-        model_doc2query,
-        tokenizer_doc2query,
+        generative_model,
+        generative_tokenizer,
         stride,
-        num_q_per_section,
+        num_texts_per_section,
         temperature,
-        num_questions,
-        block_n_gram_questions,
+        num_salient_texts,
+        block_n_gram_generated_texts,
         similarity_model,
         similarity_tokenizer,
         num_layers,
@@ -477,11 +475,10 @@ def main(df,
         num_sentences,
         target_tokens,
         block_n_gram_sum,
-        batch_size,
         similarity_model_path,
         device,
         col_name,
-        question_weights
+        gen_text_weights
         ):
 
     gold_summaries = []
@@ -493,43 +490,43 @@ def main(df,
         doc_text = np.array(ast.literal_eval(row[col_name]))
 
         weights = None
-        #  generate questions  
-        if (block_n_gram_questions):
-            questions, freq, q_tg, f_tg = get_questions_across_corpus(
-                model_doc2query,
-                tokenizer_doc2query,
+        #  generate salient text fragments  
+        if (block_n_gram_generated_texts):
+            salient_texts, freq, q_tg, f_tg = get_salient_texts_across_corpus(
+                generative_model,
+                generative_tokenizer,
                 doc_text,
                 device,
                 stride=stride,
-                num_q_per_section=num_q_per_section,
+                num_texts_per_section=num_texts_per_section,
                 temperature=temperature,
-                top_k_questions=num_questions,
-                block_n_gram=block_n_gram_questions,
+                top_k_salient_texts=num_salient_texts,
+                block_n_gram=block_n_gram_generated_texts,
             )
-            questions = q_tg
-            weights = f_tg if (question_weights) else np.array([])
+            salient_texts = q_tg
+            weights = f_tg if (gen_text_weights) else np.array([])
         else:
-            questions, freq= get_questions_across_corpus(
-                model_doc2query,
-                tokenizer_doc2query,
+            salient_texts, freq= get_salient_texts_across_corpus(
+                generative_model,
+                generative_tokenizer,
                 doc_text,
                 device,
                 stride=stride,
-                num_q_per_section=num_q_per_section,
+                num_texts_per_section=num_texts_per_section,
                 temperature=temperature,
-                top_k_questions=num_questions,
-                block_n_gram=block_n_gram_questions,
+                top_k_salient_texts=num_salient_texts,
+                block_n_gram=block_n_gram_generated_texts,
             )
-            weights = freq if (question_weights) else np.array([])
+            weights = freq if (gen_text_weights) else np.array([])
         
-        #print(questions)
+        #print(salient_texts)
 
         #  generate summary       
         pred_sum, idxs = pick_top_sentences_and_join_into_one_str(
             similarity_model,
             similarity_tokenizer,
             doc_text,
-            questions,
+            salient_texts,
             device,
             num_layers=num_layers, 
             all_layers=all_layers,
@@ -539,12 +536,11 @@ def main(df,
             similarity_model_name=similarity_model_name,
             block_n_gram=block_n_gram_sum,
             target_tokens=target_tokens,
-            batch_size=batch_size,
             similarity_model_path=similarity_model_path
         )
 
         #  append out predicted summary and gold summary to arrays for evaluation       
-        our_summary_lens.append(len(word_tokenize(pred_sum)))
+        our_summary_lens.append(len(nltk.word_tokenize(pred_sum)))
         our_predictions.append(pred_sum)       
         gold_sum = df.loc[idx,'summary_text_combined']
         gold_summaries.append(gold_sum)
@@ -560,18 +556,17 @@ def main(df,
     
     # print summaries
     print(f'\n\nData col: {col_name}.\n'+
-          f'Num questions: {num_questions}.\n'+
-          f'block_n_gram_questions: {block_n_gram_questions}.\n'+
+          f'Num salient_texts: {num_salient_texts}.\n'+
+          f'block_n_gram_generated_texts: {block_n_gram_generated_texts}.\n'+
           f'Similarity model type: {model_type}.\n'+
           f'block_n_gram_sum: {block_n_gram_sum}.\n'+
           f'summary_len_metric: {summary_len_metric}.\n'+
           f'Num sentences: {num_sentences}.\n'+
           f'target_tokens: {target_tokens}.\n'+
-          f'Batch size: {batch_size}.\n\n'+
           f'{format_rouge_results(our_pred)}\n'+
           f'Average length of summary: {np.mean(our_summary_lens)}'
          )
-    print(f'Question weights: {question_weights}')
+    print(f'gen_text weights: {gen_text_weights}')
 
 
 
@@ -582,37 +577,35 @@ if __name__=='__main__':
     # -------- DEFINE EXPERIMENT PARAMS --------------- 
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_questions",default=8)
-    parser.add_argument("--block_n_gram_questions",default=None)
+    parser.add_argument("--num_generated_texts",default=10)
+    parser.add_argument("--block_n_gram_generated_texts",default=None)
     parser.add_argument("--col_name",default='article_text')
-    parser.add_argument("--batch_size",default=64)
     parser.add_argument("--num_sentences",default=9)
     parser.add_argument("--summary_len_metric",default='sentences')
     parser.add_argument("--similarity_model_path",default='bert-base-uncased')
     parser.add_argument("--target_tokens",default=250)
-    parser.add_argument("--block_n_gram_sum",default=None)
+    parser.add_argument("--block_n_gram_sum",default=4)
     parser.add_argument("--visible_device",default='0')
-    parser.add_argument("--question_weights",default=None)
+    parser.add_argument("--gen_text_weights",default=None)
     parser.add_argument("--temperature",default=0.5)
-    parser.add_argument("--q_per_section",default=3)
+    parser.add_argument("--texts_per_section",default=3)
     parser.add_argument("--stride",default=4)
     parser.add_argument("--data_path")
-    parser.add_argument("--query_generation_model_path")
+    parser.add_argument("--generative_model_path")
     parser.add_argument("--similarity_model_name")
     args = parser.parse_args()
     
     # data params  
     path = args.data_path
     col_name = args.col_name
-    batch_size = int(args.batch_size)
     
-    # question generation params     
-    num_questions = int(args.num_questions)
-    block_n_gram_questions = int(args.block_n_gram_questions) if (args.block_n_gram_questions != None) else None
+    # gen_text generation params     
+    num_generated_texts = int(args.num_generated_texts)
+    block_n_gram_generated_texts = int(args.block_n_gram_generated_texts) if (args.block_n_gram_generated_texts != None) else None
     temperature = float(args.temperature)
-    num_q_per_section = int(args.q_per_section)
+    num_texts_per_section = int(args.texts_per_section)
     stride = int(args.stride)
-    question_model_base = args.query_generation_model_path
+    generative_model_base = args.generative_model_path
     
     # extractive summarisation (similarity and ranking) params
     num_sentences = int(args.num_sentences)
@@ -622,8 +615,7 @@ if __name__=='__main__':
     all_layers=False                                                
     block_n_gram_sum = int(args.block_n_gram_sum) if (args.block_n_gram_sum != None) else None
     target_tokens = int(args.target_tokens)
-    batch_size = int(args.batch_size)
-    question_weights = bool(args.question_weights)
+    gen_text_weights = bool(args.gen_text_weights)
     
 
     
@@ -634,8 +626,8 @@ if __name__=='__main__':
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
 
-    # define model for question generation
-    model_doc2query, tokenizer_doc2query = get_question_model(question_model_base,device)
+    # define model for gen_text generation
+    generative_model, generative_tokenizer = get_T5_model(generative_model_base,device)
 
     # define similarity model
     if (similarity_model_name == 'bert_score'):
@@ -661,13 +653,13 @@ if __name__=='__main__':
     # -------- RUN EXPERIMENT --------------- 
 
     main(df,
-        model_doc2query,
-        tokenizer_doc2query,
+        generative_model,
+        generative_tokenizer,
         stride,
-        num_q_per_section,
+        num_texts_per_section,
         temperature,
-        num_questions,
-        block_n_gram_questions,
+        num_generated_texts,
+        block_n_gram_generated_texts,
         similarity_model,
         similarity_tokenizer,
         num_layers,
@@ -676,9 +668,8 @@ if __name__=='__main__':
         num_sentences,
         target_tokens,
         block_n_gram_sum,
-        batch_size,
         similarity_model_path,
         device,
         col_name,
-        question_weights
+        gen_text_weights
         )
