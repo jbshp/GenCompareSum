@@ -1,4 +1,3 @@
--e git+https://github.com/jbshp/GenCompareSum.git@d973b1eb27e677144581f0ab50e05df07d4e491c#egg=bert_score&subdirectory=src/bert_score
 jupyter==1.0.0
 nltk==3.6.5
 numpy==1.19.5
