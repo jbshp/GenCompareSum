@@ -198,9 +198,8 @@ def calculate_similarity_bert_score(
     return F1_sci
 
 @timer  
-def calculate_similarity_simsce(questions,doc_text,device):
-    questions = list(questions)
-    return model_simcse.similarity(questions,doc_text)
+def calculate_similarity_simsce(model_simcse,questions,doc_text,device):
+    return model_simcse.similarity(list(questions),list(doc_text))
 
 def calculate_similarity_sentence_transformers(model,questions,doc_text):
     vectors_bert_sent = model.encode(doc_text)
@@ -212,7 +211,7 @@ def calculate_similarity_sentence_transformers(model,questions,doc_text):
     return scores_marix
     
 
-def rank_answers_based_on_similarity_scores(doc_text,questions,scores,similarity_model,question_weights=np.array([])):
+def rank_answers_based_on_similarity_scores(doc_text,questions,scores,similarity_model_name,question_weights=np.array([])):
     """
     Params:
         doc_text: Array[<string>] : array of sentences in article
@@ -232,7 +231,7 @@ def rank_answers_based_on_similarity_scores(doc_text,questions,scores,similarity
     # Take mean bert-score for sentences across all questions
     scores_average = np.mean(scores_reshaped,axis=0)
     # sort indicies of scores in descendng order
-    if similarity_model =='sentence_transformers':
+    if similarity_model_name =='sentence_transformers':
         # distance based - minimize scores      
         sorted_idxs = np.argsort(scores_average)
     else:
@@ -314,7 +313,7 @@ def pick_top_sentences_and_join_into_one_str(
     block_n_gram,
     target_tokens,
     batch_size,
-    bert_model_type
+    similarity_model_path
     ):
     """
     Passed an array of strings representing an article  (doc_text)
@@ -331,7 +330,7 @@ def pick_top_sentences_and_join_into_one_str(
                 tokenizer,
                 questions,
                 doc_text,
-                bert_model_type,
+                similarity_model_path,
                 all_layers,
                 num_layers,
                 device,
@@ -354,7 +353,7 @@ def pick_top_sentences_and_join_into_one_str(
         doc_text,
         questions,
         scores,
-        similarity_model,
+        similarity_model_name,
         question_weights=weights
     )
     
@@ -479,7 +478,7 @@ def main(df,
         target_tokens,
         block_n_gram_sum,
         batch_size,
-        bert_score_model_type,
+        similarity_model_path,
         device,
         col_name,
         question_weights
@@ -492,8 +491,6 @@ def main(df,
     for idx, row in tqdm(df.iterrows(),total=len(df)):
         #  read in article to summarise       
         doc_text = np.array(ast.literal_eval(row[col_name]))
-        
-        print(combine_array_sentences(doc_text))
 
         weights = None
         #  generate questions  
@@ -543,7 +540,7 @@ def main(df,
             block_n_gram=block_n_gram_sum,
             target_tokens=target_tokens,
             batch_size=batch_size,
-            bert_model_type=bert_score_model_type
+            similarity_model_path=similarity_model_path
         )
 
         #  append out predicted summary and gold summary to arrays for evaluation       
@@ -554,7 +551,7 @@ def main(df,
         
 
     #  calculate ROUGE scores
-    model_type = bert_score_model_type.split('/')[-1]
+    model_type = similarity_model_path.split('/')[-1]
     our_pred = test_rouge(our_predictions,gold_summaries)
     
     
@@ -575,7 +572,6 @@ def main(df,
           f'Average length of summary: {np.mean(our_summary_lens)}'
          )
     print(f'Question weights: {question_weights}')
-    print()
 
 
 
@@ -592,7 +588,7 @@ if __name__=='__main__':
     parser.add_argument("--batch_size",default=64)
     parser.add_argument("--num_sentences",default=9)
     parser.add_argument("--summary_len_metric",default='sentences')
-    parser.add_argument("--bert_score_model_type",default='bert-base-uncased')
+    parser.add_argument("--similarity_model_path",default='bert-base-uncased')
     parser.add_argument("--target_tokens",default=250)
     parser.add_argument("--block_n_gram_sum",default=None)
     parser.add_argument("--visible_device",default='0')
@@ -622,8 +618,7 @@ if __name__=='__main__':
     num_sentences = int(args.num_sentences)
     summary_len_metric = args.summary_len_metric
     similarity_model_name = args.similarity_model_name
-    bert_score_model_type = args.bert_score_model_type
-    simcse_model_type = "princeton-nlp/sup-simcse-roberta-large"
+    similarity_model_path = args.similarity_model_path
     all_layers=False                                                
     block_n_gram_sum = int(args.block_n_gram_sum) if (args.block_n_gram_sum != None) else None
     target_tokens = int(args.target_tokens)
@@ -645,20 +640,17 @@ if __name__=='__main__':
     # define similarity model
     if (similarity_model_name == 'bert_score'):
         num_layers, similarity_model, similarity_tokenizer =  bert_score.get_model_and_tokenizer(
-            bert_score_model_type,
+            similarity_model_path,
             device,
             all_layers=all_layers
         )
-    
     if (similarity_model_name =='simcse'):
-        similarity_model = SimCSE(simcse_model_type)
+        similarity_model = SimCSE(similarity_model_path)
         similarity_tokenizer, num_layers = None, None 
     if (similarity_model_name=='sentence_transformers'):
-        similarity_model = SentenceTransformer('allenai/scibert_scivocab_cased')
+        similarity_model = SentenceTransformer(similarity_model_path)
         similarity_model.to(device)
         similarity_tokenizer, num_layers = None, None 
-        
-    print(similarity_model_name)
         
     
     # -------- LOAD DATA ---------------  
@@ -685,9 +677,8 @@ if __name__=='__main__':
         target_tokens,
         block_n_gram_sum,
         batch_size,
-        bert_score_model_type,
+        similarity_model_path,
         device,
         col_name,
         question_weights
         )
-
