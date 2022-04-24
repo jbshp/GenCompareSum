@@ -1,9 +1,11 @@
 -e ./src/bert_score/
 jupyter==1.0.0
+multiprocess==0.70.12.2
 nltk==3.6.5
 numpy==1.19.5
 pandas==1.3.3
 -e git+https://github.com/bheinzerling/pyrouge@08e9cc35d713f718a05b02bf3bb2e29947d436ce#egg=pyrouge
+pytorch-transformers==1.2.0
 scipy==1.5.4
 sentence-transformers==2.1.0
 simcse==0.4

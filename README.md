@@ -7,11 +7,16 @@ The method is as follows: (a) We split the document into sentences. (b) We combi
 <img src="./Images/GenCompareSum.png" width="800">
 
 # Data
-An example of how data should be formatted in included in the ./data/pubmed_sample.csv. `GenCompareSum.py` expects to be pointed to a csv file which contains:
+
+### Sample data set
+
+An example of how data should be formatted in included in the ./data/preprocessed_pubmed_sample.csv. `GenCompareSum.py` expects to be pointed to a csv file which contains:
 * A column containing the article you want to summarize, split into sentences and saved in an array. 
 * A column called 'summary_text_combined' which contains your target summary, which is used for the ROUGE calculated and compared with the generated summary. It is **important** to note that the summary should be split with `\n` characters between sentences. 
 
 In our example data, we have columns `article_text`, which contains the full articles which have been split into sentences using the [StanfordNLP](https://stanfordnlp.github.io/CoreNLP/ssplit.html) software package, and a columns `short_article` which contains the same data, but truncated at the end of sentence which contains the 512th token. 
+
+To prepare data sets used in the publication, follow [this README.md](./src/data_prep/README.MD)
 
 # Set Up
 
