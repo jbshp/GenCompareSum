@@ -23,8 +23,7 @@ from prepro.utils import _get_word_ngrams
 import pandas as pd
 import time
 from tqdm import tqdm
-
-nyt_remove_words = ["photo", "graph", "chart", "map", "table", "drawing"]
+import numpy as np
 
 
 def recover_from_corenlp(s):
@@ -91,10 +90,9 @@ def load_json(f_src,f_tgt, lower):
 def tokenize_allenai_datasets(args):
     root_data_dir = os.path.abspath(args.raw_path)
     tokenized_data_dir = os.path.abspath(args.save_path)
-    meta_path = os.path.join(root_data_dir, 'metadata.jsonl')
-    new_meta_path = os.path.join(root_data_dir, 'PMC.csv')
-    pmc_dir = os.path.join(root_data_dir, 'document_parses', 'pmc_json')
-    txt_dir = os.path.join(root_data_dir, 'document_parses', 'txt_json')
+    meta_path = os.path.join(root_data_dir, 'metadata','metadata.jsonl')
+    pdf_dir = os.path.join(root_data_dir, 'pdf_parses')
+    txt_dir = os.path.join(root_data_dir, 'pdf_parses', 'txt_json')
     
     files_count_real = 0
     no_path_counter = 0
@@ -104,51 +102,49 @@ def tokenize_allenai_datasets(args):
         os.makedirs(txt_dir)
     if not os.path.exists(tokenized_data_dir):
         os.makedirs(tokenized_data_dir)
-    
-    print('... Loading PMC data from {}'.format(pmc_dir))
+
+    # load in pdf text data
+    txt_files = [file for file in os.listdir(pdf_dir) if ('.jsonl' in file)]
+    pdf_content = []
+    for pdf_file in txt_files:
+        with open(os.path.join(pdf_dir,pdf_file),'r') as f:
+            pdf_content.append(f.readlines())
+    pdf_content = [json.loads(item) for sublist in pdf_content for item in sublist]
 
     # read in csv containing metadata about files
-    df = pd.read_csv(meta_path, sep=',', error_bad_lines=False, index_col=False, dtype='unicode')
-    print('Number of files before removing papers without abstract: {}'.format(df.shape[0]))
+    df = pd.read_json(meta_path, lines=True, dtype='unicode')
+    df = df.replace(to_replace='None', value=np.nan)
+    logger.info('Number of files before removing papers without abstract: {}'.format(len(df)))
     
     # skip papers without abstract
     df = df[~pd.isnull(df.abstract)]
-    print('Number of files after removing papers without abstract: {}'.format(df.shape[0]))
+    logger.info('Number of files after removing papers without abstract: {}'.format(len(df)))
     
     # drop duplicates
     df['title_lower'] = df.title.str.lower()
     df= df.drop_duplicates(subset='title_lower').drop(columns='title_lower')
-    len_before = df.shape[0]
-    print('Number of files once articles deduplicated: \t{}'.format(len_before)) # 56341 
+    len_before = len(df)
+    logger.info('Number of files once articles deduplicated: \t{}'.format(len_before)) # 56341 
     
     start = time.time()
-    print('... (1) Processing files into readable .txt format for tokenizer into path: {}...'.format(txt_dir))
-    
-    write_head = False
+    logger.info('... (1) Processing files into readable .txt format for tokenizer into path: {}...'.format(txt_dir))
 
-    # write out new csv containing files we use in our dataset
-    with open(new_meta_path, 'w') as f:
-        w = csv.writer(f)
-        for i,row in tqdm(df.iterrows(),total=df.shape[0]):
-                
-            # read in file if available
-            pid = row['pmcid']
-            try:
-                pubtime = row['publish_time']
-            except KeyError: 
-                pubtime = row['year']
-            # pubtime = datetime.strptime(row['publish_time'], '%Y-%m-%d').timestamp()
-            ppath = os.path.join(pmc_dir, '{}.xml.json'.format(pid))
-            if not os.path.isfile(ppath):
-                no_path_counter +=1
-                continue
-            with open(ppath, 'r') as fi:
-                json_dict = json.load(fi)
+    for i,row in tqdm(df.iterrows(),total=len(df)):
             
+        # read in file if available
+        pid = row['paper_id']
+        try:
+            content = [paper for paper in pdf_content if paper['paper_id']==row['paper_id']]
+            content = content[0]
+        except IndexError: 
+            no_path_counter +=1
+            continue
+
+        if len(content['body_text']) > 0:
             # preprocess / clean file
-            cleaned_dict = clean_json(json_dict)
-            tpath = os.path.join(txt_dir, '{}-{}.txt'.format(pubtime, pid))
-            tpath_abs = os.path.join(txt_dir, '{}-{}.abs.txt'.format(pubtime, pid))
+            cleaned_dict = clean_json(content)
+            tpath = os.path.join(txt_dir, '{}.txt'.format(pid))
+            tpath_abs = os.path.join(txt_dir, '{}.abs.txt'.format(pid))
             
             # write out main text and abstract 
             with open(tpath, 'w') as fil:
@@ -156,24 +152,17 @@ def tokenize_allenai_datasets(args):
             with open(tpath_abs, 'w') as fil:
                 fil.write(row['abstract'])
             files_count_real += 1
-            
-            # write csv row
-            cleaned_dict['abstract'] = row['abstract']
-            if cleaned_dict['title'] == 'NA':
-                cleaned_dict['title'] = row['title']
-            if not write_head:
-                w.writerow(cleaned_dict.keys())
-                write_head = True       
-            w.writerow(cleaned_dict.values())
+        else:         
+            no_path_counter +=1
 
     end = time.time()
-    print('Real count for files with abstract: {} ({}%)'.format(files_count_real,files_count_real / len_before * 100))
-    print('... Ending (1), time elapsed {}'.format(end - start))
+    logger.info('Real count for files with abstract: {} ({}%)'.format(files_count_real,files_count_real / len_before * 100))
+    logger.info('... Ending (1), time elapsed {}'.format(end - start))
 
-    print("Preparing to tokenize %s to %s..." % (root_data_dir, tokenized_data_dir))
+    logger.info("Preparing to tokenize %s to %s..." % (root_data_dir, tokenized_data_dir))
     num_files_to_tokenize = 0
     # make IO list file
-    print("Making list of files to tokenize...")
+    logger.info("Making list of files to tokenize...")
     with open('mapping_for_corenlp.txt', 'w') as fi:
         for fname in os.listdir(txt_dir):
             fpath = os.path.join(txt_dir, fname)
@@ -184,9 +173,9 @@ def tokenize_allenai_datasets(args):
                '-ssplit.newlineIsSentenceBreak', 'always', '-filelist', 'mapping_for_corenlp.txt', '-outputFormat',
                'json', '-outputDirectory', tokenized_data_dir]
 
-    print("Tokenizing %i files in %s and saving in %s..." % (num_files_to_tokenize, txt_dir, tokenized_data_dir))
+    logger.info("Tokenizing %i files in %s and saving in %s..." % (num_files_to_tokenize, txt_dir, tokenized_data_dir))
     subprocess.call(command)
-    print("Stanford CoreNLP Tokenizer has finished.")
+    logger.info("Stanford CoreNLP Tokenizer has finished.")
     os.remove("mapping_for_corenlp.txt")
     
 
@@ -197,7 +186,7 @@ def tokenize_allenai_datasets(args):
         raise Exception(
             "The tokenized data directory %s contains %i files, but it should contain the same number as %s (which has %i files). Was there an error during tokenization?" % (
                 tokenized_data_dir, num_tokenized, root_data_dir, num_orig))
-    print("Successfully finished tokenizing %s to %s.\n" % (root_data_dir, tokenized_data_dir))
+    logger.info("Successfully finished tokenizing %s to %s.\n" % (root_data_dir, tokenized_data_dir))
     shutil.rmtree(txt_dir)
 
 def clean_abstract(text_array):
@@ -258,7 +247,7 @@ def tokenize_pubmed_dataset(args):
                 docs = f.readlines()
             docs = [json.loads(doc) for doc in docs]
             df = pd.DataFrame(docs)
-            len_before = df.shape[0]
+            len_before = len(df)
         except FileNotFoundError:
             logger.error(f"File not found: {source_txt_file}")
             continue
@@ -269,7 +258,7 @@ def tokenize_pubmed_dataset(args):
         # write out new csv containing files we use in our dataset
         pid = 0
         labels = []
-        for i,row in tqdm(df.iterrows(),total=df.shape[0]):
+        for i,row in tqdm(df.iterrows(),total=len(df)):
                 
             # read in pubmed file if available
         
@@ -584,42 +573,57 @@ def format_to_lines(args):
     end = time.time()
     logger.info('... Ending (4), time elapsed {}'.format(end - start))
 
+def format_to_lines_no_split(args):
+    root_data_dir = os.path.abspath(args.raw_path)
+    files = []
+    corpora = sorted([os.path.join(root_data_dir, f) for f in os.listdir(root_data_dir)
+                        if not f.startswith('.') and not f.endswith('.abs.txt.json') ])
+    for f_main in corpora:
+        f_abs_name = '{}.abs.txt.json'.format(os.path.basename(f_main).split('.')[0])
+        f_abs = os.path.join(root_data_dir, f_abs_name)
+        files.append((f_main, f_abs, args))
+   
+    start = time.time()
+    logger.info('... (4) Packing tokenized data into shards...')
 
+    # imap executes in sync multiprocess manner
+    # use array and shard_size to save the flow of ordered data
+    pool = Pool(args.n_cpus)
+    dataset = []
+    shard_count = 0
+    with tqdm(total=len(files)) as pbar:
+        with tqdm(total=args.shard_size) as spbar:
+            for i, data in enumerate(pool.imap(_format_to_lines, files)):
+                if data:
+                    dataset.append(data)
+                spbar.update()
+                if (len(dataset) > args.shard_size):
+                    fpath = os.path.join(args.save_path,"{:d}.json".format(shard_count))
+                    with open(fpath, 'w') as f:
+                        f.write(json.dumps(dataset))
+                    dataset = []
+                    shard_count += 1
+                    pbar.update()
+                    spbar.reset()
+                    # gc.collect()
+            spbar.close()
+        pbar.close()
+    pool.close()
+    pool.join()
+    if len(dataset) > 0:
+        fpath = os.path.join(args.save_path,"{:d}.json".format(shard_count))
+        logger.info('last shard {} saved'.format(shard_count))
+        with open(fpath, 'w') as f:
+            f.write(json.dumps(dataset))
+        dataset = []
+        shard_count += 1
+    end = time.time()
+    logger.info('... Ending (4), time elapsed {}'.format(end - start))
 
 def _format_to_lines(params):
     f_src, f_tgt, args = params
     source, tgt = load_json(f_src,f_tgt, args.lower)
     return {'src': source, 'tgt': tgt}
-
-
-def preprocess_pubmed_for_GenCompareSum(args):
-    tmp_dir = './tmp/'
-    if not os.path.exists(args.save_path):
-        os.mkdir(args.save_path)
-    save_path = args.save_path
-    args.save_path = tmp_dir
-    tokenize_pubmed_dataset(args)
-    args.raw_path = args.save_path
-    args.save_path = save_path
-    format_to_lines(args)
-    shutil.rmtree(tmp_dir)
-    args.raw_path = save_path
-    json_to_csv(args)
-
-def preprocess_pubmed_for_BERTSum(args):
-    tmp_dir = './tmp/'
-    if not os.path.exists(args.save_path):
-        os.mkdir(args.save_path)
-    save_path = args.save_path
-    args.save_path = tmp_dir
-    tokenize_pubmed_dataset(args)
-    args.raw_path = args.save_path
-    args.save_path = save_path
-    format_to_lines(args)
-    shutil.rmtree(tmp_dir)
-    args.raw_path = save_path
-    format_to_bert(args)
-
 
 
 def json_to_csv(args):
@@ -633,7 +637,7 @@ def json_to_csv(args):
 
         new_articles = []
         for file in files:
-            data_split = file.split('.')[0]
+            file_start = file.split('.')[0]
             logger.info(f'starting file {file}')
             json_file = f"{input_path}/{file}"
             with open(json_file,'r') as f:
@@ -666,7 +670,13 @@ def json_to_csv(args):
                     for token in sentence:
                         new_sentence+=f" {token}"
                     new_summary+=f"\n{new_sentence} "
-                    
+
+                # split dataframe into train/test/val splits
+                if file_start in corpera:
+                    data_split = file_start
+                else:
+                    data_split = random.choices(corpera,weights=[7.5,1.5,1],k=1)[0]
+
                 new_articles.append({
                     'article_text':new_article,
                     'summary_text_combined':new_summary,
@@ -697,4 +707,60 @@ def json_to_csv(args):
         df_split = df[df['data_split']==d_split].drop(columns=['data_split']).reset_index(drop=True)
         logger.info(f'Number of articles in {d_split} set: {len(df_split)}')
         df_split.to_csv(os.path.join(args.save_path,f'{d_split}.csv'),index=False)
-    
+
+def preprocess_pubmed_for_GenCompareSum(args):
+    tmp_dir = './tmp/'
+    if not os.path.exists(args.save_path):
+        os.mkdir(args.save_path)
+    save_path = args.save_path
+    args.save_path = tmp_dir
+    tokenize_pubmed_dataset(args)
+    args.raw_path = args.save_path
+    args.save_path = save_path
+    format_to_lines(args)
+    shutil.rmtree(tmp_dir)
+    args.raw_path = save_path
+    json_to_csv(args)
+
+def preprocess_pubmed_for_BERTSum(args):
+    tmp_dir = './tmp/'
+    if not os.path.exists(args.save_path):
+        os.mkdir(args.save_path)
+    save_path = args.save_path
+    args.save_path = tmp_dir
+    tokenize_pubmed_dataset(args)
+    args.raw_path = args.save_path
+    args.save_path = save_path
+    format_to_lines(args)
+    shutil.rmtree(tmp_dir)
+    args.raw_path = save_path
+    format_to_bert(args)
+
+def preprocess_allenai_datasets_for_GenCompareSum(args):
+    tmp_dir = './tmp/'
+    if not os.path.exists(args.save_path):
+        os.mkdir(args.save_path)
+    save_path = args.save_path
+    args.save_path = tmp_dir
+    tokenize_allenai_datasets(args)
+    args.raw_path = args.save_path
+    args.save_path = save_path
+    format_to_lines_no_split(args)
+    shutil.rmtree(tmp_dir)
+    args.raw_path = save_path
+    json_to_csv(args)
+
+def preprocess_allenai_datasets_for_BERTSum(args):
+    tmp_dir = './tmp/'
+    if not os.path.exists(args.save_path):
+        os.mkdir(args.save_path)
+    save_path = args.save_path
+    args.save_path = tmp_dir
+    tokenize_allenai_datasets(args)
+    args.raw_path = args.save_path
+    args.save_path = save_path
+    format_to_lines_no_split(args)
+    shutil.rmtree(tmp_dir)
+    args.raw_path = save_path
+    format_to_bert(args)
+
