@@ -459,7 +459,7 @@ class BertData():
 def format_to_bert(args):
     print('... (5) Converting data to BERT data... this will take a while')
 
-    datasets = ['train', 'valid', 'test']
+    datasets = ['train', 'val', 'test']
 
     # corpora = [os.path.join(args.raw_path, f) for f in os.listdir(args.raw_path)
     #           if not f.startswith('.') and f.endswith('.json')]
@@ -477,6 +477,9 @@ def format_to_bert(args):
         pool.close()
         pool.join()
 
+        for json_f in glob.glob(pjoin(args.raw_path, '*' + corpus_type + '.*.json')):
+            os.remove(json_f)
+
 def _format_to_bert(params):
     corpus_type, json_file, args, save_file= params
     is_test = corpus_type == 'test'
@@ -490,13 +493,8 @@ def _format_to_bert(params):
     jobs = json.load(open(json_file))
     datasets = []
     for d in jobs:
-        source, tgt, label = d['src'], d['tgt'], d['label']
-        if args.corpus != "pubmed":
-            sent_labels = greedy_selection(source[:args.max_src_nsents], tgt, 3)
-        else:
-            #sent_labels = label
-            #if sent_labels == []:
-            sent_labels = greedy_selection(source[:args.max_src_nsents], tgt, 7)
+        source, tgt = d['src'], d['tgt']
+        sent_labels = greedy_selection(source[:args.max_src_nsents], tgt, 3)
         if (args.lower):
             source = [' '.join(s).lower().split() for s in source]
             tgt = [' '.join(s).lower().split() for s in tgt]
@@ -607,6 +605,20 @@ def preprocess_pubmed_for_GenCompareSum(args):
     shutil.rmtree(tmp_dir)
     args.raw_path = save_path
     json_to_csv(args)
+
+def preprocess_pubmed_for_BERTSum(args):
+    tmp_dir = './tmp/'
+    if not os.path.exists(args.save_path):
+        os.mkdir(args.save_path)
+    save_path = args.save_path
+    args.save_path = tmp_dir
+    tokenize_pubmed_dataset(args)
+    args.raw_path = args.save_path
+    args.save_path = save_path
+    format_to_lines(args)
+    shutil.rmtree(tmp_dir)
+    args.raw_path = save_path
+    format_to_bert(args)
 
 
 
