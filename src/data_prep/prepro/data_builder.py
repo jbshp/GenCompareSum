@@ -594,3 +594,95 @@ def _format_to_lines(params):
     return {'src': source, 'tgt': tgt}
 
 
+def preprocess_pubmed_for_GenCompareSum(args):
+    tmp_dir = './tmp/'
+    if not os.path.exists(args.save_path):
+        os.mkdir(args.save_path)
+    save_path = args.save_path
+    args.save_path = tmp_dir
+    tokenize_pubmed_dataset(args)
+    args.raw_path = args.save_path
+    args.save_path = save_path
+    format_to_lines(args)
+    shutil.rmtree(tmp_dir)
+    args.raw_path = save_path
+    json_to_csv(args)
+
+
+
+def json_to_csv(args):
+
+    corpera = ['train','val','test']
+
+    try:
+        input_path = args.raw_path
+        files = os.listdir(input_path)
+        files = [file for file in files if ('.json' in file)]
+
+        new_articles = []
+        for file in files:
+            data_split = file.split('.')[0]
+            logger.info(f'starting file {file}')
+            json_file = f"{input_path}/{file}"
+            with open(json_file,'r') as f:
+                articles = json.load(f)
+            
+            for article in tqdm(articles):
+                # process article text       
+                new_article = []
+                short_article = []
+                token_count = 0
+                short_article_token_count = 0
+                text = article['src']
+                for sentence in text:
+                    new_sentence = ''
+                    for token in sentence:
+                        new_sentence+=f" {token}"
+                    new_article.append(new_sentence)
+                    if token_count<512:
+                        short_article.append(new_sentence)
+                        short_article_token_count += len(sentence)
+                    token_count+=len(sentence)
+                
+                # process summary text      
+                abs_text = article['tgt']
+                new_summary = ''
+                summary_count = 0
+                for sentence in abs_text:
+                    new_sentence = ''
+                    summary_count+=len(sentence)
+                    for token in sentence:
+                        new_sentence+=f" {token}"
+                    new_summary+=f"\n{new_sentence} "
+                    
+                new_articles.append({
+                    'article_text':new_article,
+                    'summary_text_combined':new_summary,
+                    'article_sentences':len(text),
+                    'article_tokens':token_count,
+                    'summary_sentences':len(abs_text),
+                    'summary_tokens':summary_count,
+                    'data_split':data_split,
+                    'short_article': short_article,
+                    'short_article_tokens': short_article_token_count,
+                    'short_article_sentences': len(short_article)
+                })
+            os.remove(json_file)
+    except FileNotFoundError as e:
+        logger.error(e)
+
+    df = pd.DataFrame(new_articles)
+    logger.info(f"Mean article tokens: {df['article_tokens'].mean()}")
+    logger.info(f"Mean summary tokens: {df['summary_tokens'].mean()}")
+    logger.info(f"Mean article sentences: {df['article_sentences'].mean()}")
+    logger.info(f"Mean summary sentences: {df['summary_sentences'].mean()}")
+    logger.info(f"Mean short article tokens: {df['short_article_tokens'].mean()}")
+    logger.info(f"Mean short article sentences: {df['short_article_sentences'].mean()}")
+
+    df = df[['article_text','short_article','summary_text_combined','data_split']]
+
+    for d_split in corpera:
+        df_split = df[df['data_split']==d_split].drop(columns=['data_split']).reset_index(drop=True)
+        logger.info(f'Number of articles in {d_split} set: {len(df_split)}')
+        df_split.to_csv(os.path.join(args.save_path,f'{d_split}.csv'),index=False)
+    
