@@ -11,7 +11,6 @@ import csv
 import shutil
 from os.path import join as pjoin
 
-from numpy import source
 import torch
 from multiprocess import Pool
 
@@ -71,67 +70,23 @@ def clean_json(json_dict):
 
     return {'title': title, 'text': text}
 
-def load_json(f_main, f_abs, f_tag):
-    with open(f_main, 'r') as f:
-        json_main = json.load(f)
-    with open(f_abs, 'r') as f:
-        json_abs = json.load(f)
+def load_json(f_src,f_tgt, lower):
+    source = []
+    tgt = []
+    for sent in json.load(open(f_src))['sentences']:
+        tokens = [t['word'] for t in sent['tokens']]
+        if (lower):
+            tokens = [t.lower() for t in tokens]
+        source.append(tokens)
+    for sent in json.load(open(f_tgt))['sentences']:
+        tokens = [t['word'] for t in sent['tokens']]
+        if (lower):
+            tokens = [t.lower() for t in tokens]
+        tgt.append(tokens)
 
-    src_sent_tokens = [
-        list(t['word'].lower() for t in sent['tokens'])
-        for sent in json_main['sentences']]
-    if not src_sent_tokens:
-        return None, None, None
-    else:
-        tgt_sent_tokens = [
-        list(t['word'].lower() for t in sent['tokens'])
-        for sent in json_abs['sentences']]
-
-        with open(f_tag, 'r') as f:
-            json_tag = json.load(f)
-        tag_tokens = []
-        tag_tags = []
-        sent_lengths = [len(val) for val in src_sent_tokens]
-        count = 0
-        offset = 0
-        temp_doc_len = len(json_tag)
-        while offset < temp_doc_len:
-            present_sent_len = sent_lengths[count]
-            sent_tokens = json_tag[offset:offset + present_sent_len]
-            try:
-                assert [val.lower() for _, val in sent_tokens] == src_sent_tokens[count]
-            except AssertionError as e:
-                print('src:', src_sent_tokens[count])
-                print('tag:', [val.lower() for _, val in sent_tokens])
-        #assert [val.lower() for _, val in sent_tokens] == src_sent_tokens[count]
-            offset += present_sent_len
-            try:
-                assert offset <= temp_doc_len
-            except AssertionError as e:
-                print('not match')
-                return None, None, None
-        #tag_tokens.append([val.lower() for _, val in sent_tokens])
-            temp=[]
-            for val, t in sent_tokens:
-                if ' ' in t:
-                    s = t.split()
-                    align_tag = len(s)*[val]
-                    temp += align_tag
-                else:
-                    temp.append(val)
-            tag_tags.append(temp)
-            count += 1
-    #assert tag_tokens == src_sent_tokens
-
-        tags = tag_tags
-        src = [clean(' '.join(tokens)).split() for tokens in src_sent_tokens]
-        for i, val in enumerate(src):
-            assert len(val) == len(tags[i])
-
-        tgt = [clean(' '.join(tokens)).split() for tokens in tgt_sent_tokens]
-        return src, tgt, tags
-
-
+    source = [clean(' '.join(sent)).split() for sent in source]
+    tgt = [clean(' '.join(sent)).split() for sent in tgt]
+    return source, tgt
 
 def tokenize_allenai_datasets(args):
     root_data_dir = os.path.abspath(args.raw_path)
@@ -564,76 +519,40 @@ def _format_to_bert(params):
 
 
 def format_to_lines(args):
-    if args.corpus != 'pubmed':
-        corpora = sorted([os.path.join(args.raw_path, f) for f in os.listdir(args.raw_path)
-                      if not f.startswith('.') and not f.endswith('.abs.txt.json') and not f.endswith('.tag.json')])
-        #train_files, valid_files, test_files = [], [], []:
-        args_list = []
-        for f_main in corpora:
-            f_abs_name = '{}.abs.txt.json'.format(os.path.basename(f_main).split('.')[0])
-            f_abs = os.path.join(args.raw_path, f_abs_name)
-            f_tag_name = '{}.tag.json'.format(os.path.basename(f_main).split('.')[0])
-            f_tag = os.path.join(args.raw_path, f_tag_name)
-            args_list.append((f_main, f_abs, f_tag, args))
-        index_list = list(range(len(args_list)))
-        random.shuffle(index_list)
-        train_list_id = index_list[:int(len(args_list)*0.75)]
-        eval_list_id = index_list[int(len(args_list)*0.75)+1:int(len(args_list)*0.9)]
-        test_list_id = index_list[int(len(args_list)*0.9)+1:]
-        train_files = [args_list[i] for i in train_list_id]
-        valid_files = [args_list[i] for i in eval_list_id]
-        test_files = [args_list[i] for i in test_list_id]
-    else:
-        root_data_dir = os.path.abspath(args.raw_path)
-        train_files, valid_files, test_files = [], [], []
-        test_txt_path = os.path.join(root_data_dir, 'test_pubmed')
-        val_txt_path = os.path.join(root_data_dir, 'val_pubmed')
-        train_txt_path = os.path.join(root_data_dir, 'train_pubmed')
-        test_corpora = sorted([os.path.join(test_txt_path, f) for f in os.listdir(test_txt_path)
-                              if not f.startswith('.') and not f.endswith('.abs.txt.json') and not f.endswith('.tag.json')])
-        val_corpora = sorted([os.path.join(val_txt_path, f) for f in os.listdir(val_txt_path)
-                               if not f.startswith('.') and not f.endswith('.abs.txt.json') and not f.endswith('.tag.json')])
-        train_corpora = sorted([os.path.join(train_txt_path, f) for f in os.listdir(train_txt_path)
-                              if not f.startswith('.') and not f.endswith('.abs.txt.json') and not f.endswith('.tag.json')])
-        with open(os.path.join(root_data_dir, 'test.pkl'), 'rb') as f:
-            test_label = pickle.load(f)
-        with open(os.path.join(root_data_dir, 'val.pkl'), 'rb') as f:
-            val_label = pickle.load(f)
-        with open(os.path.join(root_data_dir, 'train.pkl'), 'rb') as f:
-            train_label = pickle.load(f)
-        for f_main in test_corpora:
-            f_abs_name = '{}.abs.txt.json'.format(os.path.basename(f_main).split('.')[0])
-            f_abs = os.path.join(test_txt_path, f_abs_name)
-            f_tag_name = '{}.tag.json'.format(os.path.basename(f_main).split('.')[0])
-            f_tag = os.path.join(test_txt_path, f_tag_name)
-            paper_id = os.path.basename(f_main).split('.')[0]
-            label = test_label[int(paper_id)]
-            test_files.append((f_main, f_abs, f_tag, args, label))
-        for f_main in val_corpora:
-            f_abs_name = '{}.abs.txt.json'.format(os.path.basename(f_main).split('.')[0])
-            f_abs = os.path.join(val_txt_path, f_abs_name)
-            f_tag_name = '{}.tag.json'.format(os.path.basename(f_main).split('.')[0])
-            f_tag = os.path.join(val_txt_path, f_tag_name)
-            paper_id = os.path.basename(f_main).split('.')[0]
-            label = val_label[int(paper_id)]
-            valid_files.append((f_main, f_abs, f_tag, args, label))
-        for f_main in train_corpora:
-            f_abs_name = '{}.abs.txt.json'.format(os.path.basename(f_main).split('.')[0])
-            f_abs = os.path.join(train_txt_path, f_abs_name)
-            f_tag_name = '{}.tag.json'.format(os.path.basename(f_main).split('.')[0])
-            f_tag = os.path.join(train_txt_path, f_tag_name)
-            paper_id = os.path.basename(f_main).split('.')[0]
-            label = train_label[int(paper_id)]
-            train_files.append((f_main, f_abs, f_tag, args, label))
+    root_data_dir = os.path.abspath(args.raw_path)
 
+    train_files, valid_files, test_files = [], [], []
+    corpera = ['train', 'valid', 'test']
+    for d_split in corpera:
+        try:
+            files = []
+            txt_path = os.path.join(root_data_dir, d_split)
+            corpora = sorted([os.path.join(txt_path, f) for f in os.listdir(txt_path)
+                                if not f.startswith('.') and not f.endswith('.abs.txt.json') ])
+            with open(os.path.join(root_data_dir, f'{d_split}.pkl'), 'rb') as f:
+                label = pickle.load(f)
+                logger.info(label)
+            for f_main in corpora:
+                f_abs_name = '{}.abs.txt.json'.format(os.path.basename(f_main).split('.')[0])
+                f_abs = os.path.join(txt_path, f_abs_name)
+                files.append((f_main, f_abs, args))
+            if d_split == 'train':
+                train_files = files
+            elif d_split == 'test':
+                test_files = files
+            elif d_split =='val':
+                valid_files = files
+        except FileNotFoundError as e:
+            logger.error(e)
+            continue
+   
     start = time.time()
-    print('... (4) Packing tokenized data into shards...')
-    #print('Converting files count: {}'.format(len(corpora)))
+    logger.info('... (4) Packing tokenized data into shards...')
 
     # imap executes in sync multiprocess manner
     # use array and shard_size to save the flow of ordered data
     corporas = {'train': train_files, 'valid': valid_files, 'test': test_files}
-    for corpus_type in ['train', 'valid', 'test']:
+    for corpus_type in corpera:
         a_lst = corporas[corpus_type]
         pool = Pool(args.n_cpus)
         dataset = []
@@ -659,19 +578,19 @@ def format_to_lines(args):
         pool.join()
         if len(dataset) > 0:
             fpath = "{:s}/{:s}.{:d}.json".format(args.save_path, corpus_type, shard_count)
-            print('last shard {} saved'.format(shard_count))
+            logger.info('last shard {} saved'.format(shard_count))
             with open(fpath, 'w') as f:
                 f.write(json.dumps(dataset))
             dataset = []
             shard_count += 1
     end = time.time()
-    print('... Ending (4), time elapsed {}'.format(end - start))
+    logger.info('... Ending (4), time elapsed {}'.format(end - start))
+
+
 
 def _format_to_lines(params):
-    f_main, f_abs, f_tags, args, label = params
-    source, tgt, tag= load_json(f_main, f_abs, f_tags)
-    if not source:
-        return None
-    else:
-        return {'src': source, 'tgt': tgt, "tag":tag, "label":label}
+    f_src, f_tgt, args = params
+    source, tgt = load_json(f_src,f_tgt, args.lower)
+    return {'src': source, 'tgt': tgt}
+
 
