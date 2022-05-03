@@ -127,7 +127,7 @@ def tokenize_allenai_datasets(args):
     logger.info('Number of files once articles deduplicated: \t{}'.format(len_before)) # 56341 
     
     start = time.time()
-    logger.info('... (1) Processing files into readable .txt format for tokenizer into path: {}...'.format(txt_dir))
+    logger.info('... Processing files into readable .txt format for tokenizer into path: {}...'.format(txt_dir))
 
     for i,row in tqdm(df.iterrows(),total=len(df)):
             
@@ -253,7 +253,7 @@ def tokenize_pubmed_dataset(args):
             continue
         
         start = time.time()
-        logger.info('... (1) Processing pubmed files into readable .txt format for tokenizer into path: {}...'.format(txt_dir))
+        logger.info('...Processing pubmed files into readable .txt format for tokenizer into path: {}...'.format(txt_dir))
         
         # write out new csv containing files we use in our dataset
         pid = 0
@@ -446,28 +446,27 @@ class BertData():
 
 
 def format_to_bert(args):
-    print('... (5) Converting data to BERT data... this will take a while')
+    logger.info('...Converting data to BERT data... this will take a while')
 
-    datasets = ['train', 'val', 'test']
+    a_lst = []
+    for json_f in glob.glob(pjoin(args.raw_path, '*.json')):
 
-    # corpora = [os.path.join(args.raw_path, f) for f in os.listdir(args.raw_path)
-    #           if not f.startswith('.') and f.endswith('.json')]
-    print("")
-    for corpus_type in datasets:
-        a_lst = []
-        for json_f in glob.glob(pjoin(args.raw_path, '*' + corpus_type + '.*.json')):
-            real_name = json_f.split('/')[-1]
-            # print("json_f:", json_f, real_name)
-            a_lst.append((corpus_type, json_f, args, pjoin(args.save_path, real_name.replace('json', 'bert.pt'))))
+        if 'test' in json_f:
+            corpus_type = 'test'
+        else:
+            corpus_type = None
+        real_name = json_f.split('/')[-1]
 
-        pool = Pool(args.n_cpus)
-        for d in pool.imap(_format_to_bert, a_lst):
-            pass
-        pool.close()
-        pool.join()
+        a_lst.append((corpus_type, json_f, args, pjoin(args.save_path, real_name.replace('json', 'bert.pt'))))
 
-        for json_f in glob.glob(pjoin(args.raw_path, '*' + corpus_type + '.*.json')):
-            os.remove(json_f)
+    pool = Pool(args.n_cpus)
+    for d in pool.imap(_format_to_bert, a_lst):
+        pass
+    pool.close()
+    pool.join()
+
+    for json_f in glob.glob(pjoin(args.raw_path, '*.json')):
+        os.remove(json_f)
 
 def _format_to_bert(params):
     corpus_type, json_file, args, save_file= params
@@ -534,7 +533,7 @@ def format_to_lines(args):
             continue
    
     start = time.time()
-    logger.info('... (4) Packing tokenized data into shards...')
+    logger.info('... Packing tokenized data into shards...')
 
     # imap executes in sync multiprocess manner
     # use array and shard_size to save the flow of ordered data
@@ -584,7 +583,7 @@ def format_to_lines_no_split(args):
         files.append((f_main, f_abs, args))
    
     start = time.time()
-    logger.info('... (4) Packing tokenized data into shards...')
+    logger.info('... Packing tokenized data into shards...')
 
     # imap executes in sync multiprocess manner
     # use array and shard_size to save the flow of ordered data
