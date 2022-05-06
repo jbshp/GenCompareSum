@@ -478,7 +478,9 @@ def main(df,
         similarity_model_path,
         device,
         col_name,
-        gen_text_weights
+        gen_text_weights,
+        inference_only,
+        save_predictions
         ):
 
     gold_summaries = []
@@ -518,8 +520,6 @@ def main(df,
                 block_n_gram=block_n_gram_generated_texts,
             )
             weights = freq if (gen_text_weights) else np.array([])
-        
-        #print(salient_texts)
 
         #  generate summary       
         pred_sum, idxs = pick_top_sentences_and_join_into_one_str(
@@ -547,26 +547,27 @@ def main(df,
         
 
     #  calculate ROUGE scores
-    model_type = similarity_model_path.split('/')[-1]
-    our_pred = test_rouge(our_predictions,gold_summaries)
-    
-    
-    
-    our_summary_lens = np.array(our_summary_lens)
-    
-    # print summaries
-    print(f'\n\nData col: {col_name}.\n'+
-          f'Num salient_texts: {num_salient_texts}.\n'+
-          f'block_n_gram_generated_texts: {block_n_gram_generated_texts}.\n'+
-          f'Similarity model type: {model_type}.\n'+
-          f'block_n_gram_sum: {block_n_gram_sum}.\n'+
-          f'summary_len_metric: {summary_len_metric}.\n'+
-          f'Num sentences: {num_sentences}.\n'+
-          f'target_tokens: {target_tokens}.\n'+
-          f'{format_rouge_results(our_pred)}\n'+
-          f'Average length of summary: {np.mean(our_summary_lens)}'
-         )
-    print(f'gen_text weights: {gen_text_weights}')
+    if (save_predictions):
+        with open('./results.json','w') as f:
+            json.dump(our_predictions,f)
+    if not (inference_only):   
+        model_type = similarity_model_path.split('/')[-1]
+        our_pred = test_rouge(our_predictions,gold_summaries)
+        
+        # print summaries
+        our_summary_lens = np.array(our_summary_lens)
+        print(f'\n\nData col: {col_name}.\n'+
+            f'Num salient_texts: {num_salient_texts}.\n'+
+            f'block_n_gram_generated_texts: {block_n_gram_generated_texts}.\n'+
+            f'Similarity model type: {model_type}.\n'+
+            f'block_n_gram_sum: {block_n_gram_sum}.\n'+
+            f'summary_len_metric: {summary_len_metric}.\n'+
+            f'Num sentences: {num_sentences}.\n'+
+            f'target_tokens: {target_tokens}.\n'+
+            f'{format_rouge_results(our_pred)}\n'+
+            f'Average length of summary: {np.mean(our_summary_lens)}'
+            )
+        print(f'gen_text weights: {gen_text_weights}')
 
 
 
@@ -593,6 +594,8 @@ if __name__=='__main__':
     parser.add_argument("--data_path")
     parser.add_argument("--generative_model_path")
     parser.add_argument("--similarity_model_name")
+    parser.add_argument('--inference_only',default=False)
+    parser.add_argument("--save_predictions",default=False)
     args = parser.parse_args()
     
     # data params  
@@ -616,9 +619,13 @@ if __name__=='__main__':
     block_n_gram_sum = int(args.block_n_gram_sum) if (args.block_n_gram_sum != None) else None
     target_tokens = int(args.target_tokens)
     gen_text_weights = bool(args.gen_text_weights)
-    
 
-    
+    # other
+    inference_only = bool(args.inference_only)
+    save_predictions = bool(args.save_predictions)
+
+
+
     # -------- LOAD MODELS ---------------  
     
     # Define the target device. Use GPU if available.
@@ -643,7 +650,7 @@ if __name__=='__main__':
         similarity_model = SentenceTransformer(similarity_model_path)
         similarity_model.to(device)
         similarity_tokenizer, num_layers = None, None 
-        
+    
     
     # -------- LOAD DATA ---------------  
       
@@ -671,5 +678,7 @@ if __name__=='__main__':
         similarity_model_path,
         device,
         col_name,
-        gen_text_weights
+        gen_text_weights,
+        inference_only,
+        save_predictions
         )

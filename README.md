@@ -36,7 +36,7 @@ This code can be run on cpu or gpu, however, runs significantly slower on cpu.
 ## To evaluate method with ROUGE metrics
 
 ```
-python GenCompareSum.py --num_generated_texts 10 --block_n_gram_generated_texts 4 --col_name short_article --summary_len_metric sentences --num_sentences 6 --block_n_gram_sum 4   --visible_device 0 --texts_per_section 3 --temperature 0.5 --stride 4 --gen_text_weights 1 --data_path ./data/pubmed_sample.csv --generative_model_path doc2query/S2ORC-t5-base-v1  --similarity_model_name bert_score --similarity_model_path bert-base-uncased 
+python GenCompareSum.py --num_generated_texts 10 --block_n_gram_generated_texts 4 --col_name article_text --summary_len_metric sentences --num_sentences 9 --block_n_gram_sum 4   --visible_device 0 --texts_per_section 3 --temperature 0.5 --stride 4 --gen_text_weights 1 --data_path ./data/sample_preprocessed/pubmed.csv --generative_model_path doc2query/S2ORC-t5-base-v1  --similarity_model_name bert_score --similarity_model_path bert-base-uncased --inference_only False --save_predictions False
 ```
 
 The generative models used in our paper were: 
@@ -53,7 +53,7 @@ The config params are as follows:
 * `--num_generated_texts` - Number of generated salient texts to select to carry forward to comparative step
 * `--block_n_gram_generated_text` - If set, use an `Int` value to give the number of words which need to be the same consecutively between two texts for one of them to be removed. If unset, no n-gram blocking is applied to generated texts
 * `--summary_len_metric` - Metric by which to get the target length of the summary, either `sentences` or `tokens`
-* `--num_sentences` - Number of sentences to select for predicted exractive summary
+* `--num_sentences` - Number of sentences to select for predicted extractive summary
 * `--target_tokens` - Target number of tokens to aim for in predicted summary. 
 * `--block_n_gram_sum` - If set, use an `Int` value to give the number of words which need to be the same consecutively between two texts for one of them to be removed. If unset, no n-gram blocking is applied to generated texts
 * `--visible_device` - gpu device to use, if using a gpu
@@ -61,6 +61,8 @@ The config params are as follows:
 * `--temperature`- Temperature parameter of generative model
 * `--texts_per_section` - Number of salient texts to generate per section
 * `--stride` - Number of sentences to combine to make a section to feed into the generative model
+* `--inference_only` - Does not run ROUGE calculations
+* `--save_predictions` - Saves predictions into a `results.json` file
 
 # Comparative methods for summarization
 
@@ -69,11 +71,11 @@ This folder contains code to run comparative methods which were reference in the
 1. [BERTExtSum](https://github.com/nlpyang/PreSumm) can be implemented directly. 
 2. For ORACLE calculations, run:
 ```
-python comparative_methods/oracle.py --data_csv ./data/pubmed_sample.csv --col_name short_article --num_sentences 9
+python comparative_methods/oracle.py --data_csv  ./data/sample_preprocessed/pubmed.csv --col_name article_text --num_sentences 9
 ```
 3. For other methods, run:
 ```
-python ./comparative_methods/run_comparative_summary_method.pyy --data_csv ./data/pubmed_sample.csv --col_name short_article --num_sentences 9 --method  <method>
+python ./comparative_methods/run_comparative_summary_method.py --data_csv  ./data/sample_preprocessed/pubmed.csv --col_name article_text --num_sentences 9 --method  <method>
 ```
 `method` options include:
 * `LEAD`
