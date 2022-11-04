@@ -172,7 +172,6 @@ def calculate_similarity_bert_score(
         salient_texts,
         doc_text,
         model_type,
-        all_layers,
         num_layers,
         device
     ):
@@ -192,7 +191,7 @@ def calculate_similarity_bert_score(
         num_layers=num_layers,
         device=device, 
         verbose=False,
-        all_layers=all_layers,
+        all_layers=False,
         batch_size=64
     )
     return F1_sci
@@ -266,13 +265,13 @@ def select_sentences(
     """
     if metric == 'tokens':
         len_sentences = np.array([len(nltk.word_tokenize(s)) for s in doc_text])
-        article_len = np.sum(len_sentences)
-        max_len = target_tokens
+        article_len = int(np.sum(len_sentences))
+        max_len = target_tokens-50
     elif metric == 'sentences':
         article_len = len(doc_text)
         max_len = top_k_sentences
         
-    #  if article is too short, whole things is summary  
+    #  if article is too short, whole things is summary 
     if article_len <= max_len:
         pred = doc_text
     else :
@@ -305,7 +304,6 @@ def pick_top_sentences_and_join_into_one_str(
     salient_texts,
     device,
     num_layers, 
-    all_layers,
     metric,
     top_k_sentences,
     weights,
@@ -330,7 +328,6 @@ def pick_top_sentences_and_join_into_one_str(
                 salient_texts,
                 doc_text,
                 similarity_model_path,
-                all_layers,
                 num_layers,
                 device
             )
@@ -470,7 +467,6 @@ def main(df,
         similarity_model,
         similarity_tokenizer,
         num_layers,
-        all_layers,
         summary_len_metric,
         num_sentences,
         target_tokens,
@@ -528,8 +524,7 @@ def main(df,
             doc_text,
             salient_texts,
             device,
-            num_layers=num_layers, 
-            all_layers=all_layers,
+            num_layers=num_layers,  
             metric=summary_len_metric,
             top_k_sentences=num_sentences,
             weights=weights,
@@ -614,8 +609,7 @@ if __name__=='__main__':
     num_sentences = int(args.num_sentences)
     summary_len_metric = args.summary_len_metric
     similarity_model_name = args.similarity_model_name
-    similarity_model_path = args.similarity_model_path
-    all_layers=False                                                
+    similarity_model_path = args.similarity_model_path                                                
     block_n_gram_sum = int(args.block_n_gram_sum) if (args.block_n_gram_sum != None) else None
     target_tokens = int(args.target_tokens)
     gen_text_weights = bool(args.gen_text_weights)
@@ -641,7 +635,7 @@ if __name__=='__main__':
         num_layers, similarity_model, similarity_tokenizer =  bert_score.get_model_and_tokenizer(
             similarity_model_path,
             device,
-            all_layers=all_layers
+            all_layers=False
         )
     if (similarity_model_name =='simcse'):
         similarity_model = SimCSE(similarity_model_path)
@@ -670,7 +664,6 @@ if __name__=='__main__':
         similarity_model,
         similarity_tokenizer,
         num_layers,
-        all_layers,
         summary_len_metric,
         num_sentences,
         target_tokens,

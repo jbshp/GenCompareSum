@@ -24,8 +24,14 @@ This repo requires python>=3.7.
 To install the dependencies for this repo:
 ```
 pip install -r ./requirements.txt
+```
+To get pyrouge to work:
+```
 git clone https://github.com/andersjo/pyrouge.git ./src/rouge
 pyrouge_set_rouge_path <PATH_TO_THIS_REPO>/src/rouge/tools/ROUGE-1.5.5
+cd <PATH_TO_THIS_REPO>/src/rouge/tools/ROUGE-1.5.5/RELEASE-1.5.5/data/
+rm WordNet-2.0.exc.db
+./WordNet-2.0-Exceptions/buildExeptionDB.pl ./WordNet-2.0-Exceptions ./smart_common_words.txt ./WordNet-2.0.exc.db
 ```
 
 Note that we adapt the original [BERTScore](https://github.com/Tiiiger/bert_score) code slightly, and include it within our repo under `src/bert_score`.
@@ -41,8 +47,8 @@ python GenCompareSum.py --num_generated_texts 10 --block_n_gram_generated_texts 
 
 The generative models used in our paper were: 
 * [docTTTTTquery](https://huggingface.co/castorini/doc2query-t5-base-msmarco)
-* [t5-med-query](./models/)
-* [t5-s2orc-title](S2ORC-t5-base-v1)
+* t5-med-query - We trained this model ourselves by flipping question, long-answer datasets around. A decription of the datasets and training parameters used to train this model can be found in Appendix B of [our paper](https://aclanthology.org/2022.bionlp-1.22.pdf).
+* [t5-s2orc-title](https://huggingface.co/doc2query/S2ORC-t5-base-v1)
 
 The config params are as follows:
 * `--data_path` - Path to csv containing data to summarize
